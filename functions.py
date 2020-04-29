@@ -4,6 +4,7 @@ import math
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
 
 def import_data (fp_portfolio, fp_profile, fp_transcript):
     '''
@@ -27,7 +28,15 @@ def import_data (fp_portfolio, fp_profile, fp_transcript):
     return portfolio, profile, transcript
 
 def clean_portfolio(portfolio):
-    
+    '''
+    Cleans and one-hot-encodes portfolio datasets (separating channel and offer type into binaries)
+
+    Arguments:
+        portfolio {dataframe} -- imported porfolio dataframe of offers
+
+    Returns:
+        portfolio -- cleaned and on-hot-encoded dataset
+    ''' 
 
     # One-Hot Encoding of Channels and Offer_Type
 
@@ -50,3 +59,127 @@ def clean_portfolio(portfolio):
     portfolio.drop(columns = ['offer_type','channels'], inplace = True)
 
     return portfolio
+
+
+# establish if transactions were 'influenced' or not, and by which offer
+def influenced_check (trns_row, offers=offers):
+    '''
+    Checks if each transaction is influenced by an offer or not
+    '''
+    # trns_row: person, value, time
+    
+    # filter offers table for person
+    person_offers = offers[offers.person == trns_row.person]
+
+    #cycle through offers
+    for _, offer_row in person_offers.iterrows():
+        
+        #if transaction was within span of influence
+        #time viewed is not nan, transaction time is > time viewed, and trs time is < end of influence
+        if (offer_row.time_viewed != np.nan) & (trns_row.time >=offer_row.time_viewed) & (trns_row.time <=offer_row.end_of_influence):
+            return [True, offer_row.offer ]
+
+    #if transaction was outside of any influence span
+    return [False, np.nan]
+
+
+def avg_daily_value (transactions):
+    
+    person_offer_spend = pd.DataFrame(columns = ['person','offer','avg_daily_spend', 'total_spend', 'days'])
+
+    for person in set(transactions.person):
+        
+        #subset dataframe for each person
+        person_trns = transactions[transactions.person==person]
+
+        #create time period indexed column
+        person_trns.sort_values(by = 'time',inplace=True)
+        person_trns['time_per'] = (person_trns['offer'] != person_trns['offer'].shift(1)).cumsum()
+
+        # instantiate previous max day indicator
+        prev_max = 0
+        
+        # loop through time periods
+        for i in set(person_trns['time_per']):
+
+            # find the max day in this time period
+            # limitation: for the last time period, it will not assume the 29th day (last day) - more logic is required
+                # the case of an offer ending but no influced transactions following is missed with this. Can be added in future version
+            cur_max = person_trns[person_trns.time_per==i].day.max()
+
+            # gather variables to append to resultant dataset
+            offer = person_trns[person_trns.time_per==i].iloc[0].offer
+            total_spend = person_trns[person_trns.time_per==i].value.sum()
+            days = cur_max-prev_max + 1
+            avg_daily = total_spend/days
+
+            # establish row and append to resultant dataset
+            row = {'person':person, 'offer':offer, 'avg_daily_spend': avg_daily, 'total_spend':total_spend, 'days':days}
+            person_offer_spend=person_offer_spend.append(row, ignore_index=True)
+
+            #iterate prev_max counter for next cycle
+            prev_max = cur_max
+
+
+    return person_offer_spend
+
+
+
+def find_offer_impact(transcript, portfolio, update = False, offer_impactfp = 'data/offer_impact.pickle'):
+    
+
+    # check if an update to the file is called for, if not - return the previous version
+    if update == False:
+        offer_impact = pd.read_pickle('offer_impactfp')
+        return offer_impact
+    else:
+        
+        #split 'value' column
+        transcript['value_label'] = transcript.value.apply(lambda x: [*x][0])
+        transcript['value'] = transcript.value.apply(lambda x: list(x.values())[0])
+
+        #convert transaction time into days
+        transcript.time = transcript.time/24
+
+        # separate into transactions and offers
+        transactions = transcript[transcript.event == 'transaction'][['person','value','time']]
+        offers = transcript[transcript.event != 'transaction']
+
+        #pivot for each person and subsequent offer
+        offers = offers.pivot_table(values = 'time',index = ['person','value'], columns = 'event').reset_index()
+        offers.columns = ['person','offer','time_completed', 'time_received','time_viewed']
+
+        #merge offers dataframe with portfolio to establish timelines of influence
+        offers = offers.merge(portfolio, how = 'left',left_on='offer', right_on= 'id').drop(columns='id')
+        offers['end_of_influence'] = offers.apply(lambda x: min([x.time_received+x.duration, x.time_completed]),axis = 1)
+
+        #loop through all transactions to test if it was influenced. 
+        tmp = transactions.apply(lambda x: influenced_check(x,offers), axis=1).apply(pd.Series)
+        tmp.columns = ['influenced','offer']
+        
+        # merge back to transactions dataset and note day of occurance
+        transactions = pd.concat([transactions,tmp],axis=1)
+        transactions['day'] = np.floor(transactions.time)
+        transactions.offer.fillna(0,inplace = True)
+
+        # find every individual's average daily average for each time period 
+        # (offer standing, in between offers, etc)
+        trns_avg_daily = avg_daily_value(transactions)
+
+        # extract no-influene times and take weighted average
+        no_influence = trns_avg_daily[trns_avg_daily.offer==0].groupby(by = 'person',as_index=False).sum()
+        no_influence['avg_daily_spend']=no_influence.total_spend/no_influence.days
+
+        no_influence.drop(columns = ['total_spend','days'],inplace = True) 
+        no_influence.columns = ['person','no_influence_avg_daily_spend']
+        
+        #merge offer impact with no offer transaction behavior
+        offer_impact = trns_avg_daily[trns_avg_daily.offer != 0][['person','offer','avg_daily_spend']]
+        offer_impact.columns = ['person','offer','offer_daily_spend']
+        offer_impact = offer_impact.merge(no_influence, how='inner',left_on = 'person',right_on = 'person')
+        offer_impact['lift'] = offer_impact.offer_daily_spend/offer_impact.no_influence_avg_daily_spend
+
+        # save updated file as pickle
+        offer_impact.to_pickle(offer_impactfp)
+        return offer_impact
+
