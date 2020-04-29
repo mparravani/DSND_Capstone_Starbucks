@@ -64,10 +64,18 @@ def clean_portfolio(portfolio):
 # establish if transactions were 'influenced' or not, and by which offer
 def influenced_check (trns_row, offers=offers):
     '''
-    Checks if each transaction is influenced by an offer or not
-    '''
-    # trns_row: person, value, time
-    
+    Establish if a transaction was made under the influence of an offer. Used in Transaction data processing.
+
+    Arguments:
+        trns_row {series} -- row of transactions dataset
+        offers {dataframe} -- offers dataframe, as established in below function (default: {offers})
+
+    Returns:
+        Tuple:
+            Binary of whether transaction was made under the influence of an offer
+            Active offer id, or np.nan where no influence
+    '''    
+     
     # filter offers table for person
     person_offers = offers[offers.person == trns_row.person]
 
@@ -84,6 +92,15 @@ def influenced_check (trns_row, offers=offers):
 
 
 def avg_daily_value (transactions):
+    '''
+    Calculates the average daily spend of customers through different time periods. Used for processing transactions dataset 
+
+    Arguments:
+        transactions {dataframe} -- partially cleaned transactions dataset  
+
+    Returns:
+        person_offer_spend {dataframe} -- average daily spend for each individual for each offer (and no-influence timeframe)
+    '''    
     
     person_offer_spend = pd.DataFrame(columns = ['person','offer','avg_daily_spend', 'total_spend', 'days'])
 
@@ -120,13 +137,26 @@ def avg_daily_value (transactions):
             #iterate prev_max counter for next cycle
             prev_max = cur_max
 
-
     return person_offer_spend
 
 
 
-def find_offer_impact(transcript, portfolio, update = False, offer_impactfp = 'data/offer_impact.pickle'):
-    
+def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp = 'data/offer_impact.pickle'):
+    '''
+    Processes transcript data and merges with portfolio to establish the impact of each offer on each individual (Lift).
+    Lift calculated as average spend during the promotion relative to the user's un-influenced spending. 
+
+    Processing takes a long time, if calculations are not required update = False will return a previously calculated version.
+
+    Arguments:
+        transcript {dataframe} -- transcript dataframe as imported
+        portfolio {dataframe} -- portfolio dataframe as imported
+        update {bool} -- whether there has been an update to the data - if False will return previously save version (default: {False})
+        offer_impactfp {str} -- file location of offer_impact dataset (default: {'data/offer_impact.pickle'})
+
+    Returns:
+        offer_impact -- dataset of ever offer provided to each individual and the impact of the offer (lift) on spending
+    '''
 
     # check if an update to the file is called for, if not - return the previous version
     if update == False:
@@ -182,4 +212,6 @@ def find_offer_impact(transcript, portfolio, update = False, offer_impactfp = 'd
         # save updated file as pickle
         offer_impact.to_pickle(offer_impactfp)
         return offer_impact
+
+
 
