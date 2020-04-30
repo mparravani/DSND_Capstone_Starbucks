@@ -6,6 +6,16 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from copy import copy
 import os
+import pickle as pkl
+
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor
+from xgboost import XGBRFRegressor
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import r2_score, accuracy_score
+from xgboost import XGBClassifier
 
 def import_data (fp_portfolio ='data/portfolio.json', fp_profile='data/profile.json', fp_transcript='data/transcript.json'):
     '''
@@ -303,3 +313,138 @@ def IQR_adjustment(data,colname):
     fig.suptitle('Outlier Processing for ' + colname, fontsize=16)
     plt.show()
     return adj_data
+
+
+def prep_for_binary_model(offer_impact, profile, portfolio, lift_threshold = 1.25):
+    '''
+    Merge datasets on person id and offer id for all parameters. Then return a binary of if lift was greater than threshold.
+
+    Arguments:
+        offer_impact {dataframe} -- offer_impact dataframe as prepared above
+        profile {dataframe} -- profile dataframe as prepared above
+        portfolio {dataframe} -- portfolio dataframe as prepared above
+
+    Returns:
+        model_data -- resultant merged dataframe with 'binary_lift' column indicating sucessful result of spending
+    '''
+
+    # join person information and offer information to main table
+    model_data = offer_impact.merge(profile, how = 'inner',left_on='person',right_on= 'id')
+    model_data.drop(columns=['offer_daily_spend','person','id'], inplace = True)
+
+    model_data = model_data.merge(portfolio, how = 'inner',left_on='offer',right_on= 'id')
+    model_data.drop(columns=['offer','id'], inplace = True)
+
+    model_data['binary_lift'] = model_data.lift>lift_threshold
+
+    return model_data
+
+
+def build_classifier (run_gridsearch):
+
+    # build model
+    xgb_classifier = XGBClassifier(learning_rate =0.1,
+                        n_estimators=1000,
+                        max_depth=2,
+                        min_child_weight=3,
+                        gamma=0.4,
+                        subsample=0.8,
+                        colsample_bytree=0.8,
+                        objective= 'binary:logistic',
+                        nthread=-1,
+                        scale_pos_weight=1)
+
+    params = {
+    'max_depth':[2,5,7],
+    'min_child_weight':[2,3,4],
+    'gamma':[0.2,0.4,0.6]
+    }
+    
+    # recent success gridsearch parameters are already used in model. If update requested, re-run gridsearch
+    if run_gridsearch:
+        return GridSearchCV(xgb_classifier, param_grid=params,  cv=5, n_jobs=-1, scoring='roc_auc')
+    else:
+        return xgb_classifier
+
+
+def build_train_classifier(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/binary_classifier'):
+
+    if import_model == True:
+        print ('Importing Previously Saved Model')
+        binary_classifier = pkl.load(open(model_fp, 'rb') ) 
+        return binary_classifier
+    else:
+
+        print ('Building Model')
+        binary_classifier = build_classifier(run_gridsearch)
+
+        # prep train_test data, then train model
+        print('Training Model')
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        binary_classifier.fit(X_train, y_train)
+
+        print('Evaluating on Test Data')
+        # make predictions and return accuracy
+        pred = binary_classifier.predict(X_test)
+        accuracy = accuracy_score(y_test,pred)
+
+        print('Saving Model')
+        with open(model_fp, 'wb') as f:
+            pkl.dump(binary_classifier, f)
+
+    return binary_classifier, accuracy
+
+
+def build_regressor (run_gridsearch):
+
+    # build model
+    xgb_classifier = XGBClassifier(learning_rate =0.1,
+                        n_estimators=1000,
+                        max_depth=2,
+                        min_child_weight=3,
+                        gamma=0.4,
+                        subsample=0.8,
+                        colsample_bytree=0.8,
+                        objective= 'binary:logistic',
+                        nthread=-1,
+                        scale_pos_weight=1)
+
+    params = {
+    'max_depth':[2,5,7],
+    'min_child_weight':[2,3,4],
+    'gamma':[0.2,0.4,0.6]
+    }
+    
+    # recent success gridsearch parameters are already used in model. If update requested, re-run gridsearch
+    if run_gridsearch:
+        return GridSearchCV(xgb_classifier, param_grid=params,  cv=5, n_jobs=-1, scoring='roc_auc')
+    else:
+        return xgb_classifier
+
+
+def build_train_classifier(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/binary_classifier'):
+
+    if import_model == True:
+        print ('Importing Previously Saved Model')
+        binary_classifier = pkl.load(open(model_fp, 'rb') ) 
+        return binary_classifier
+    else:
+
+        print ('Building Model')
+        binary_classifier = build_classifier(run_gridsearch)
+
+        # prep train_test data, then train model
+        print('Training Model')
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
+        binary_classifier.fit(X_train, y_train)
+
+        print('Evaluating on Test Data')
+        # make predictions and return accuracy
+        pred = binary_classifier.predict(X_test)
+        accuracy = accuracy_score(y_test,pred)
+
+        print('Saving Model')
+        with open(model_fp, 'wb') as f:
+            pkl.dump(binary_classifier, f)
+
+    return binary_classifier, accuracy
