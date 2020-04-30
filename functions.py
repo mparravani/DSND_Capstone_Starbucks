@@ -159,7 +159,7 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
 
     # check if an update to the file is called for, if not - return the previous version
     if update == False:
-        offer_impact = pd.read_pickle('offer_impactfp')
+        offer_impact = pd.read_pickle(offer_impactfp)
         return offer_impact
     else:
         
@@ -257,16 +257,15 @@ def clean_profile (profile, update = False, profile_fp = 'data/profile.pickle'):
 
         return profile
 
-def IQR_adjustment(series,col):
+def IQR_adjustment(series):
     '''
     Outlier adjustment using inner quartile range (max Q3+1.5*IQR), also plotting a distplot for the resultant distribution
 
     Arguments:
-        series {[type]} -- [description]
-        col {[type]} -- [description]
+        series {[type]} -- Series to be processed
 
     Returns:
-        [type] -- [description]
+        adj_series -- adjusted series (with dampened outlers)
     '''
     # 
 
