@@ -9,11 +9,7 @@ import os
 import pickle as pkl
 
 from sklearn.model_selection import train_test_split, GridSearchCV
-from sklearn.preprocessing import StandardScaler
-from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor
-from xgboost import XGBRFRegressor
-from sklearn.pipeline import Pipeline
+from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import r2_score, accuracy_score
 from xgboost import XGBClassifier
 
@@ -367,7 +363,7 @@ def build_classifier (run_gridsearch):
         return xgb_classifier
 
 
-def build_train_classifier(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/binary_classifier'):
+def build_train_classifier(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/binary_classifier.pickle'):
 
     if import_model == True:
         print ('Importing Previously Saved Model')
@@ -394,57 +390,32 @@ def build_train_classifier(X,y, import_model = True, run_gridsearch = False, mod
 
     return binary_classifier, accuracy
 
-
-def build_regressor (run_gridsearch):
-
-    # build model
-    xgb_classifier = XGBClassifier(learning_rate =0.1,
-                        n_estimators=1000,
-                        max_depth=2,
-                        min_child_weight=3,
-                        gamma=0.4,
-                        subsample=0.8,
-                        colsample_bytree=0.8,
-                        objective= 'binary:logistic',
-                        nthread=-1,
-                        scale_pos_weight=1)
-
-    params = {
-    'max_depth':[2,5,7],
-    'min_child_weight':[2,3,4],
-    'gamma':[0.2,0.4,0.6]
-    }
-    
-    # recent success gridsearch parameters are already used in model. If update requested, re-run gridsearch
-    if run_gridsearch:
-        return GridSearchCV(xgb_classifier, param_grid=params,  cv=5, n_jobs=-1, scoring='roc_auc')
-    else:
-        return xgb_classifier
-
-
-def build_train_classifier(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/binary_classifier'):
+def build_train_log_regression(X,y, import_model = True, run_gridsearch = False, model_fp = 'model/log_regression.pickle'):
 
     if import_model == True:
         print ('Importing Previously Saved Model')
-        binary_classifier = pkl.load(open(model_fp, 'rb') ) 
-        return binary_classifier
+        log_regression = pkl.load(open(model_fp, 'rb') ) 
+        return log_regression
     else:
 
+        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
         print ('Building Model')
-        binary_classifier = build_classifier(run_gridsearch)
+        log_regression = LogisticRegression(max_iter = 100)
+        log_regression.fit(X_train,y_train)
+        pred = log_regression.predict(X_test)
+        accuracy_score(y_test,pred)
 
         # prep train_test data, then train model
         print('Training Model')
-        X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2)
-        binary_classifier.fit(X_train, y_train)
+        log_regression.fit(X_train, y_train)
 
         print('Evaluating on Test Data')
         # make predictions and return accuracy
-        pred = binary_classifier.predict(X_test)
+        pred = log_regression.predict(X_test)
         accuracy = accuracy_score(y_test,pred)
 
         print('Saving Model')
         with open(model_fp, 'wb') as f:
-            pkl.dump(binary_classifier, f)
+            pkl.dump(log_regression, f)
 
-    return binary_classifier, accuracy
+    return log_regression, accuracy
