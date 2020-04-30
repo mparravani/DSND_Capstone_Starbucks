@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import os
 
-def import_data (fp_portfolio, fp_profile, fp_transcript):
+def import_data (fp_portfolio ='data/portfolio.json', fp_profile='data/profile.json', fp_transcript='data/transcript.json'):
     '''
     Imports the datasets into data frames
 
@@ -61,21 +61,20 @@ def clean_portfolio(portfolio):
     return portfolio
 
 
-# establish if transactions were 'influenced' or not, and by which offer
-def influenced_check (trns_row, offers=offers):
-    '''
-    Establish if a transaction was made under the influence of an offer. Used in Transaction data processing.
+def influenced_check(trns_row, offers): 
+    """
+    Establish if a transaction was made under the influence of an offer
+    Used in Transaction data processing
 
     Arguments:
         trns_row {series} -- row of transactions dataset
-        offers {dataframe} -- offers dataframe, as established in below function (default: {offers})
-
+        offers {dataframe} -- offers dataframe, as established in below function
+        
     Returns:
         Tuple:
             Binary of whether transaction was made under the influence of an offer
             Active offer id, or np.nan where no influence
-    '''    
-     
+   """   
     # filter offers table for person
     person_offers = offers[offers.person == trns_row.person]
 
@@ -214,4 +213,81 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
         return offer_impact
 
 
+def clean_profile (profile, update = False, profile_fp = 'data/profile.pickle'):
+    '''
+    Cleans profile dataset and imputes missing data using KNN
 
+    Arguments:
+        profile {dataframe} -- profile dataset as imported
+
+    Keyword Arguments:
+        update {bool} -- whether there has been an update to the data - if False will return previously save version (default: {False})
+        profile_fp {str} -- [file location of profile dataset (default: {'data/profile.pickle'})
+
+    Returns:
+        profile {dataframe} -- cleaned and KNN filled profile dataset
+    '''
+    if update == False:
+        profile = pd.read_pickle(profile_fp)
+    else:
+
+        #establish and test for %NA
+        profile.gender = profile.gender.replace({'None':np.nan})
+        profile.age=profile.age.replace({118:np.nan})
+
+        # convert became member on to datetime, then establish 'months since join'
+        profile.became_member_on = profile.became_member_on.apply(lambda x: pd.to_datetime(str(x),format = '%Y%m%d'))
+        profile['months_since_join']=profile.became_member_on.apply(lambda x: pd.Timedelta(pd.Timestamp.today()-x).days/30)
+
+        #convert the gender column into binary
+        profile.gender=profile.gender.replace({'F':0, 'M':1, 'O':np.nan})
+        profile.gender = pd.to_numeric(profile.gender)
+
+        #impute missing data using KNN Imputer
+        from sklearn.impute import KNNImputer
+        imp = KNNImputer()
+        profile_imp = pd.DataFrame(imp.fit_transform(profile[['gender','age','income','months_since_join']]), columns = ['gender','age','income','months_since_join'])
+
+        # Join person ID back onto imputed values
+        profile = pd.concat([profile_imp,profile.id],axis = 1)
+        # round gender value back to 1/0
+        profile.gender = round(profile.gender,0)
+        
+        profile.to_pickle(profile_fp)
+
+        return profile
+
+def IQR_adjustment(series,col):
+    '''
+    Outlier adjustment using inner quartile range (max Q3+1.5*IQR), also plotting a distplot for the resultant distribution
+
+    Arguments:
+        series {[type]} -- [description]
+        col {[type]} -- [description]
+
+    Returns:
+        [type] -- [description]
+    '''
+    # 
+
+    # establish IQR
+    Q1 = series.quantile(0.25)
+    Q3 = series.quantile(0.75)
+    IQR = Q3 - Q1
+
+    adj_series = series
+    adj_series[adj_series>(Q3+1.5*IQR)]=(Q3+1.5*IQR)
+    adj_series[adj_series<(Q1-1.5*IQR)]=(Q1-1.5*IQR)
+    
+    
+    fig, ax = plt.subplots(1,2)
+    plt.axes(ax[0])
+    sns.distplot(series)
+    plt.title('Before Adjustment')
+    
+    plt.axes(ax[1])
+    sns.distplot(adj_series)
+    plt.title('After Adjustments')
+    
+    plt.show()
+    return adj_series
