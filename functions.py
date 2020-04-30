@@ -4,6 +4,7 @@ import math
 import json
 import matplotlib.pyplot as plt
 import seaborn as sns
+from copy import copy
 import os
 
 def import_data (fp_portfolio ='data/portfolio.json', fp_profile='data/profile.json', fp_transcript='data/transcript.json'):
@@ -159,10 +160,12 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
 
     # check if an update to the file is called for, if not - return the previous version
     if update == False:
+        print ('Importing Previously Saved Dataset')
         offer_impact = pd.read_pickle(offer_impactfp)
         return offer_impact
     else:
         
+        print('Data Cleaning')
         #split 'value' column
         transcript['value_label'] = transcript.value.apply(lambda x: [*x][0])
         transcript['value'] = transcript.value.apply(lambda x: list(x.values())[0])
@@ -182,6 +185,7 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
         offers = offers.merge(portfolio, how = 'left',left_on='offer', right_on= 'id').drop(columns='id')
         offers['end_of_influence'] = offers.apply(lambda x: min([x.time_received+x.duration, x.time_completed]),axis = 1)
 
+        print('Establishing which transactions were influenced')
         #loop through all transactions to test if it was influenced. 
         tmp = transactions.apply(lambda x: influenced_check(x,offers), axis=1).apply(pd.Series)
         tmp.columns = ['influenced','offer']
@@ -191,10 +195,12 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
         transactions['day'] = np.floor(transactions.time)
         transactions.offer.fillna(0,inplace = True)
 
+        print('Calculating Average Daily Totals by Time Perioed')
         # find every individual's average daily average for each time period 
         # (offer standing, in between offers, etc)
         trns_avg_daily = avg_daily_value(transactions)
 
+        print('Wrangling and merging final dataset')
         # extract no-influene times and take weighted average
         no_influence = trns_avg_daily[trns_avg_daily.offer==0].groupby(by = 'person',as_index=False).sum()
         no_influence['avg_daily_spend']=no_influence.total_spend/no_influence.days
@@ -208,6 +214,7 @@ def calculate_offer_impact(transcript, portfolio, update = False, offer_impactfp
         offer_impact = offer_impact.merge(no_influence, how='inner',left_on = 'person',right_on = 'person')
         offer_impact['lift'] = offer_impact.offer_daily_spend/offer_impact.no_influence_avg_daily_spend
 
+        print('Saving to pickle file')
         # save updated file as pickle
         offer_impact.to_pickle(offer_impactfp)
         return offer_impact
@@ -228,10 +235,13 @@ def clean_profile (profile, update = False, profile_fp = 'data/profile.pickle'):
         profile {dataframe} -- cleaned and KNN filled profile dataset
     '''
     if update == False:
+        print ('Importing Previously Saved Dataset')
         profile = pd.read_pickle(profile_fp)
+        return profile
     else:
 
-        #establish and test for %NA
+        print('Data Cleaning')
+        #establish NAs instead of None
         profile.gender = profile.gender.replace({'None':np.nan})
         profile.age=profile.age.replace({118:np.nan})
 
@@ -243,6 +253,7 @@ def clean_profile (profile, update = False, profile_fp = 'data/profile.pickle'):
         profile.gender=profile.gender.replace({'F':0, 'M':1, 'O':np.nan})
         profile.gender = pd.to_numeric(profile.gender)
 
+        print('Imputing Missing Data')
         #impute missing data using KNN Imputer
         from sklearn.impute import KNNImputer
         imp = KNNImputer()
@@ -253,40 +264,42 @@ def clean_profile (profile, update = False, profile_fp = 'data/profile.pickle'):
         # round gender value back to 1/0
         profile.gender = round(profile.gender,0)
         
+        print('Saving to pickle file')
         profile.to_pickle(profile_fp)
 
         return profile
 
-def IQR_adjustment(series):
+def IQR_adjustment(data,colname):
     '''
-    Outlier adjustment using inner quartile range (max Q3+1.5*IQR), also plotting a distplot for the resultant distribution
+    Outlier adjustment using inner quartile range (max Q3+1.5*IQR), also plotting a boxplot for the comparable distributions
 
     Arguments:
-        series {[type]} -- Series to be processed
+        data {series} -- Series to be processed
+        colname {string} -- column name being processed
 
     Returns:
-        adj_series -- adjusted series (with dampened outlers)
+        adj_data {series} -- Adjusted series (with dampened outlers)
     '''
     # 
 
     # establish IQR
-    Q1 = series.quantile(0.25)
-    Q3 = series.quantile(0.75)
+    Q1 = data.quantile(0.25)
+    Q3 = data.quantile(0.75)
     IQR = Q3 - Q1
 
-    adj_series = series
-    adj_series[adj_series>(Q3+1.5*IQR)]=(Q3+1.5*IQR)
-    adj_series[adj_series<(Q1-1.5*IQR)]=(Q1-1.5*IQR)
+    adj_data = copy(data)
+    adj_data[adj_data>(Q3+1.5*IQR)]=(Q3+1.5*IQR)
+    adj_data[adj_data<(Q1-1.5*IQR)]=(Q1-1.5*IQR)
     
-    
-    fig, ax = plt.subplots(1,2)
+    fig, ax = plt.subplots(1,2, figsize =(12,8),  sharey=True)
     plt.axes(ax[0])
-    sns.distplot(series)
+    sns.boxplot(data)
     plt.title('Before Adjustment')
     
     plt.axes(ax[1])
-    sns.distplot(adj_series)
+    sns.boxplot(adj_data)
     plt.title('After Adjustments')
     
+    fig.suptitle('Outlier Processing for ' + colname, fontsize=16)
     plt.show()
-    return adj_series
+    return adj_data
