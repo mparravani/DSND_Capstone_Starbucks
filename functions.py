@@ -297,7 +297,7 @@ def IQR_adjustment(data,colname):
     adj_data[adj_data>(Q3+1.5*IQR)]=(Q3+1.5*IQR)
     adj_data[adj_data<(Q1-1.5*IQR)]=(Q1-1.5*IQR)
     
-    fig, ax = plt.subplots(1,2, figsize =(12,8),  sharey=True)
+    fig, ax = plt.subplots(1,2, figsize =(12,4),  sharey=True)
     plt.axes(ax[0])
     sns.boxplot(data)
     plt.title('Before Adjustment')
